@@ -7,6 +7,7 @@ import (
 	"billionmail-core/internal/service/collect"
 	"billionmail-core/internal/service/domains"
 	"billionmail-core/internal/service/fail2ban"
+	"billionmail-core/internal/service/frostbyte"
 	"billionmail-core/internal/service/log_maintenance"
 	"billionmail-core/internal/service/mail_boxes"
 	"billionmail-core/internal/service/mail_service"
@@ -182,6 +183,11 @@ func Start(ctx context.Context) (err error) {
 
 	gtimer.AddOnce(1*time.Minute, func() {
 		relay.EnsurePostfixConfExists(ctx)
+	})
+
+	// FrostByte reply detection (scan Dovecot Maildir for incoming replies)
+	gtimer.Add(1*time.Minute, func() {
+		frostbyte.CheckForReplies()
 	})
 
 	// Check the domain name blacklist
