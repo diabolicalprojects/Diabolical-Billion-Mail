@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from helpers import api
+from helpers.api import rewrite_url
 from helpers.wait import poll_until
 
 
@@ -51,9 +52,9 @@ async def test_open_tracking_pixel(bm_api, mailpit, db, seed_data):
     pixel_urls = [u for u in all_img_srcs if "/pmta/" in u]
     assert pixel_urls, f"No /pmta/ tracking pixel found. img srcs: {all_img_srcs}"
 
-    # Fire the pixel URL
+    # Fire the pixel URL (rewrite hostname to localhost)
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        pixel_resp = await client.get(pixel_urls[0])
+        pixel_resp = await client.get(rewrite_url(pixel_urls[0]))
         assert pixel_resp.status_code == 200
 
     # Verify open recorded in DB
@@ -116,9 +117,9 @@ async def test_click_tracking_redirect(bm_api, mailpit, db, seed_data):
     tracked_links = [u for u in all_hrefs if "/pmta/" in u and u not in all_img_srcs]
     assert tracked_links, f"No /pmta/ tracked links found. hrefs: {all_hrefs}"
 
-    # Follow tracked link — should redirect to original URL
+    # Follow tracked link — should redirect to original URL (rewrite hostname)
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
-        click_resp = await client.get(tracked_links[0])
+        click_resp = await client.get(rewrite_url(tracked_links[0]))
         assert click_resp.status_code in (301, 302, 307, 308), (
             f"Expected redirect, got {click_resp.status_code}"
         )

@@ -19,11 +19,42 @@ E2E_TEMPLATE_HTML = """<html><body>
 E2E_GROUP_NAME = "E2E Test Group"
 E2E_CONTACT_EMAIL = "e2e-recipient@example.com"
 E2E_API_NAME = "E2E Test API"
+E2E_DOMAIN = "test.billionmail.com"
+E2E_SENDER_LOCAL = "e2e-sender"
+E2E_SENDER_PASSWORD = "e2eTest1234!"
 
 
-async def seed_test_data(bm_client: httpx.AsyncClient) -> dict:
+async def seed_test_data(bm_client: httpx.AsyncClient, db=None) -> dict:
     """Create all test fixtures via BillionMail API. Returns IDs dict."""
     data = {}
+
+    # 0. Create domain + sender mailbox (required for SMTP auth)
+    resp = await api.post(
+        bm_client,
+        "/api/domains/create",
+        json={"domain": E2E_DOMAIN, "quota": 1073741824, "mailboxes": 50, "rateLimit": 100},
+    )
+    if resp.status_code == 200 and resp.json().get("code") == 0:
+        logger.info("[SEED] Created domain %s", E2E_DOMAIN)
+    else:
+        logger.info("[SEED] Domain may already exist: %s", resp.text[:200])
+
+    resp = await api.post(
+        bm_client,
+        "/api/mailbox/create",
+        json={
+            "domain": E2E_DOMAIN,
+            "local_part": E2E_SENDER_LOCAL,
+            "password": E2E_SENDER_PASSWORD,
+            "full_name": "E2E Sender",
+            "active": 1,
+            "isAdmin": 0,
+        },
+    )
+    if resp.status_code == 200 and resp.json().get("code") == 0:
+        logger.info("[SEED] Created mailbox %s@%s", E2E_SENDER_LOCAL, E2E_DOMAIN)
+    else:
+        logger.info("[SEED] Mailbox may already exist: %s", resp.text[:200])
 
     # 1. Create email template
     resp = await api.post(
@@ -31,8 +62,8 @@ async def seed_test_data(bm_client: httpx.AsyncClient) -> dict:
         "/api/email_template/create",
         json={
             "temp_name": E2E_TEMPLATE_NAME,
-            "content": E2E_TEMPLATE_HTML,
-            "add_type": 1,
+            "html_content": E2E_TEMPLATE_HTML,
+            "add_type": 0,
         },
     )
     if resp.status_code == 200 and resp.json().get("code") == 0:
@@ -47,22 +78,25 @@ async def seed_test_data(bm_client: httpx.AsyncClient) -> dict:
                 break
         logger.info("[SEED] Using existing template id=%s", data.get("template_id"))
 
-    # 2. Create contact group
+    # 2. Create contact group (API returns no ID — must list to find it)
     resp = await api.post(
         bm_client,
         "/api/contact/group/create",
-        json={"name": E2E_GROUP_NAME, "description": "E2E testing group"},
+        json={"name": E2E_GROUP_NAME, "description": "E2E testing group", "create_type": 1},
     )
     if resp.status_code == 200 and resp.json().get("code") == 0:
-        data["group_id"] = resp.json().get("data", {}).get("id")
-        logger.info("[SEED] Created group id=%s", data.get("group_id"))
+        logger.info("[SEED] Group create succeeded, fetching ID from list")
     else:
-        resp = await api.get(bm_client, "/api/contact/group/all")
-        for g in resp.json().get("data", []):
-            if g.get("name") == E2E_GROUP_NAME:
-                data["group_id"] = g["id"]
-                break
-        logger.info("[SEED] Using existing group id=%s", data.get("group_id"))
+        logger.info("[SEED] Group may already exist, looking up by name")
+
+    resp = await api.get(bm_client, "/api/contact/group/all")
+    group_data = resp.json().get("data", {})
+    group_list = group_data.get("list", group_data) if isinstance(group_data, dict) else group_data
+    for g in (group_list or []):
+        if g.get("name") == E2E_GROUP_NAME:
+            data["group_id"] = g["id"]
+            break
+    logger.info("[SEED] Group id=%s", data.get("group_id"))
 
     # 3. Import contacts into group
     if data.get("group_id"):
@@ -82,6 +116,14 @@ async def seed_test_data(bm_client: httpx.AsyncClient) -> dict:
             },
         )
         logger.info("[SEED] Imported contacts: %d", resp.status_code)
+
+    # 3b. Re-activate contacts (may have been deactivated by previous test runs)
+    if db and data.get("group_id"):
+        await db.execute(
+            "UPDATE bm_contacts SET active = 1 WHERE group_id = $1",
+            data["group_id"],
+        )
+        logger.info("[SEED] Re-activated all contacts in group %s", data["group_id"])
 
     # 4. Create API template (for programmatic send)
     if data.get("template_id") and data.get("group_id"):
@@ -109,7 +151,8 @@ async def seed_test_data(bm_client: httpx.AsyncClient) -> dict:
                 "/api/batch_mail/api/list",
                 params={"page": 1, "page_size": 50, "keyword": E2E_API_NAME},
             )
-            for item in list_resp.json().get("data", {}).get("list", []):
+            api_data = list_resp.json().get("data") or {}
+            for item in (api_data.get("list") or []):
                 if item.get("api_name") == E2E_API_NAME:
                     data["api_key"] = item.get("api_key")
                     data["api_id"] = item.get("id")

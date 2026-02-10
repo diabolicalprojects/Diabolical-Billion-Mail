@@ -8,12 +8,13 @@ import httpx
 import pytest
 
 from helpers import api
+from helpers.api import rewrite_url
 from helpers.wait import poll_until
 
 
 @pytest.mark.asyncio
 async def test_unsubscribe_deactivates_contact(bm_api, mailpit, db, seed_data):
-    """Send email → extract unsubscribe JWT → POST to unsub API → verify contact deactivated."""
+    """Send email → find unsub link → follow redirect → POST unsub API → verify deactivated."""
     await mailpit.clear()
 
     resp = await api.post(
@@ -48,24 +49,39 @@ async def test_unsubscribe_deactivates_contact(bm_api, mailpit, db, seed_data):
 
     html = await mailpit.get_message_html(msg["ID"])
 
-    # Find unsubscribe link — matches unsubscribe_new.html?jwt=...
+    # Strategy 1: direct unsubscribe_new.html?jwt= link
     unsub_urls = re.findall(r'href="([^"]*unsubscribe_new\.html\?jwt=[^"]*)"', html, re.IGNORECASE)
-    if not unsub_urls:
-        # Fallback: broader unsub match
-        unsub_urls = re.findall(r'href="([^"]*unsub[^"]*)"', html, re.IGNORECASE)
-    assert unsub_urls, "No unsubscribe link found in email"
 
-    # Extract JWT from unsubscribe URL
-    parsed = urlparse(unsub_urls[0])
-    qs = parse_qs(parsed.query)
-    jwt_token = qs.get("jwt", [None])[0]
-    assert jwt_token, f"No JWT param in unsubscribe URL: {unsub_urls[0]}"
+    if unsub_urls:
+        parsed = urlparse(unsub_urls[0])
+        jwt_token = parse_qs(parsed.query).get("jwt", [None])[0]
+    else:
+        # Strategy 2: BM wraps unsub link in /pmta/ tracking — find by "Unsubscribe" text
+        unsub_match = re.findall(r'href="([^"]+)"[^>]*>Unsubscribe</a>', html, re.IGNORECASE)
+        if not unsub_match:
+            # Broader fallback
+            unsub_match = re.findall(r'href="([^"]*unsub[^"]*)"', html, re.IGNORECASE)
+            if not unsub_match:
+                unsub_match = re.findall(r'href="([^"]*pmta[^"]*)"', html, re.IGNORECASE)
+        assert unsub_match, f"No unsubscribe link found in email HTML"
 
-    # POST directly to unsubscribe API (GET just loads the HTML page with JS)
-    base_url = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else str(bm_api.base_url)
+        # Follow the tracked unsub link — should redirect to unsubscribe_new.html?jwt=
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+            redir_resp = await client.get(rewrite_url(unsub_match[0]))
+            assert redir_resp.status_code in (301, 302, 307, 308), (
+                f"Expected redirect from unsub tracking link, got {redir_resp.status_code}"
+            )
+
+        location = redir_resp.headers.get("location", "")
+        parsed = urlparse(location)
+        jwt_token = parse_qs(parsed.query).get("jwt", [None])[0]
+
+    assert jwt_token, f"No JWT found in unsubscribe flow"
+
+    # POST to unsubscribe API
     async with httpx.AsyncClient(timeout=10) as client:
         unsub_resp = await client.post(
-            f"{base_url}/api/unsubscribe_new",
+            f"{str(bm_api.base_url).rstrip('/')}/api/unsubscribe_new",
             json={"jwt": jwt_token},
         )
         assert unsub_resp.status_code == 200, f"Unsubscribe POST failed: {unsub_resp.status_code}"
