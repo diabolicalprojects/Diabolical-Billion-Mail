@@ -18,12 +18,12 @@ func (c *ControllerV1) ListVideoOutreach(ctx context.Context, req *v1.ListVideoO
 		q = q.Where("group_id", req.GroupID)
 	}
 
-	// Filter by tier via JSON attribs
+	// Filter by tier via JSONB attribs (cast to text for LIKE since GoFrame escapes ?)
 	if req.Tier != "" {
-		q = q.WhereLike("attribs", `%"lead_tier":"`+req.Tier+`"%`)
+		q = q.Where("attribs::text LIKE ?", `%"lead_tier":"`+req.Tier+`"%`)
 	} else {
 		// Only show contacts that have lead scoring data
-		q = q.WhereLike("attribs", `%"lead_tier"%`)
+		q = q.Where("attribs::text LIKE ?", `%"lead_tier"%`)
 	}
 
 	// Count total

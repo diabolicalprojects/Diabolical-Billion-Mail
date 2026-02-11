@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"billionmail-core/internal/model"
 	"billionmail-core/internal/service/public"
 	"context"
 	"fmt"
@@ -72,8 +73,11 @@ func NewRBACMiddleware() *RBACMiddleware {
 // PermissionCheck checks if the current user has the required permission
 func (m *RBACMiddleware) PermissionCheck(r *ghttp.Request) {
 	// Skip permission check for authentication-related routes
-	if r.URL.Path == "/api/v1/login" ||
-		r.URL.Path == "/api/v1/refresh-token" {
+	if r.URL.Path == "/api/login" ||
+		r.URL.Path == "/api/refresh-token" ||
+		r.URL.Path == "/api/get_validate_code" ||
+		r.URL.Path == "/api/languages/get" ||
+		r.URL.Path == "/api/languages/set" {
 		r.Middleware.Next()
 		return
 	}
@@ -87,15 +91,28 @@ func (m *RBACMiddleware) PermissionCheck(r *ghttp.Request) {
 	}
 	accountId := gconv.Int64(accountIdVar)
 
-	// Get roles from context
-	roles := r.GetCtxVar("roles", []string{}).Strings()
-
-	// Check for admin role (has all permissions)
-	for _, role := range roles {
-		if role == "admin" {
-			r.Middleware.Next()
-			return
+	// Get roles from context — may be []model.Role, []string, or []interface{}
+	rolesVal := r.GetCtxVar("roles").Val()
+	isAdmin := false
+	switch rv := rolesVal.(type) {
+	case []model.Role:
+		for _, role := range rv {
+			if role.RoleName == "admin" {
+				isAdmin = true
+				break
+			}
 		}
+	default:
+		for _, s := range gconv.Strings(rv) {
+			if s == "admin" {
+				isAdmin = true
+				break
+			}
+		}
+	}
+	if isAdmin {
+		r.Middleware.Next()
+		return
 	}
 
 	// Extract module, action, and resource from request path
