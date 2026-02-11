@@ -114,6 +114,10 @@ var (
 					}
 				}
 			}
+			if public.HostWorkDir == "" {
+				public.HostWorkDir = public.AbsPath("../")
+				g.Log().Warning(ctx, "HostWorkDir not found via Docker label, using fallback: ", public.HostWorkDir)
+			}
 
 			// Operation log type
 			public.LogTypeMap = consts.GetLogTypeMap()
