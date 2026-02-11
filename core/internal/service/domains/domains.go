@@ -926,6 +926,17 @@ func RepairDKIMSigningConfig(ctx context.Context) error {
 			g.Log().Debugf(ctx, "Skipping DKIM signing for relay-mapped domain: %s", d.Domain)
 			continue
 		}
+		// Regenerate missing DKIM key files
+		for _, sel := range []struct {
+			name string
+			size int
+		}{{"default", 2048}, {"short", 1024}} {
+			keyPath := public.AbsPath(filepath.Join(consts.RSPAMD_LIB_PATH, "dkim", d.Domain, sel.name+".private"))
+			if !public.FileExists(keyPath) {
+				g.Log().Warningf(ctx, "DKIM key missing for %s/%s, regenerating", d.Domain, sel.name)
+				getDKIMRecordWithKeySize(d.Domain, sel.name, sel.size, false)
+			}
+		}
 		// For each domain, generate the correct config block with both selectors
 		signConf := fmt.Sprintf(`
 #%s_DKIM_BEGIN
