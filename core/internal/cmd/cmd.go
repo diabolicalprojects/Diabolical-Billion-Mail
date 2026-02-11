@@ -269,6 +269,9 @@ var (
 				)
 			})
 
+			// Public video landing page (no auth — recipients click from email)
+			s.BindHandler("GET:/landing/video", video_outreach_ctrl.ServeLandingPage)
+
 			// FrostByte API reverse proxy (JWT-protected)
 			frostbyteProxy := httputil.NewSingleHostReverseProxy(&url.URL{
 				Scheme: "http",

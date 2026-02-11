@@ -225,7 +225,7 @@ func TestBuildLandingPageURL(t *testing.T) {
 			"",
 			"",
 			"",
-			"?video=&thumb=&name=",
+			"/landing/video?video=&thumb=&name=",
 		},
 		{
 			"name with spaces",

@@ -143,8 +143,12 @@ func detectContentType(filename string) string {
 }
 
 // BuildLandingPageURL constructs the landing page URL with video params.
+// Falls back to /landing/video if baseURL is empty.
 func BuildLandingPageURL(baseURL, videoURL, thumbnailURL, contactName string) string {
 	base := strings.TrimRight(baseURL, "/")
+	if base == "" {
+		base = "/landing/video"
+	}
 	return fmt.Sprintf("%s?video=%s&thumb=%s&name=%s",
 		base, videoURL, thumbnailURL, contactName)
 }

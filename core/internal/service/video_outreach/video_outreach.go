@@ -2,6 +2,8 @@ package video_outreach
 
 import (
 	"billionmail-core/internal/service/lead_scoring"
+	"os"
+	"strconv"
 	"strings"
 )
 
@@ -16,6 +18,16 @@ type TemplateSelection struct {
 type VideoOutreachConfig struct {
 	VideoTemplateID int // template ID for tier_1 (video email)
 	TextTemplateID  int // template ID for tier_2 (text email)
+}
+
+// DefaultVideoOutreachConfig returns config from env vars VIDEO_TEMPLATE_ID and TEXT_TEMPLATE_ID.
+func DefaultVideoOutreachConfig() VideoOutreachConfig {
+	vid, _ := strconv.Atoi(os.Getenv("VIDEO_TEMPLATE_ID"))
+	txt, _ := strconv.Atoi(os.Getenv("TEXT_TEMPLATE_ID"))
+	return VideoOutreachConfig{
+		VideoTemplateID: vid,
+		TextTemplateID:  txt,
+	}
 }
 
 // SelectTemplate picks the right template based on the contact's lead tier.

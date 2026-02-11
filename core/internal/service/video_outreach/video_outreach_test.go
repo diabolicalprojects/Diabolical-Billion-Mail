@@ -302,3 +302,21 @@ func TestVideoOutreachConfig_ZeroValue(t *testing.T) {
 	assert.Zero(t, cfg.VideoTemplateID)
 	assert.Zero(t, cfg.TextTemplateID)
 }
+
+func TestDefaultVideoOutreachConfig_FromEnv(t *testing.T) {
+	t.Setenv("VIDEO_TEMPLATE_ID", "42")
+	t.Setenv("TEXT_TEMPLATE_ID", "99")
+
+	cfg := DefaultVideoOutreachConfig()
+	assert.Equal(t, 42, cfg.VideoTemplateID)
+	assert.Equal(t, 99, cfg.TextTemplateID)
+}
+
+func TestDefaultVideoOutreachConfig_MissingEnv(t *testing.T) {
+	t.Setenv("VIDEO_TEMPLATE_ID", "")
+	t.Setenv("TEXT_TEMPLATE_ID", "")
+
+	cfg := DefaultVideoOutreachConfig()
+	assert.Zero(t, cfg.VideoTemplateID)
+	assert.Zero(t, cfg.TextTemplateID)
+}
