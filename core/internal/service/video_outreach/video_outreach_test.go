@@ -104,10 +104,10 @@ func TestSelectTemplate_CaseSensitivity(t *testing.T) {
 func TestSelectTemplate_ExtraAttribsIgnored(t *testing.T) {
 	cfg := VideoOutreachConfig{VideoTemplateID: 10, TextTemplateID: 20}
 	attribs := map[string]string{
-		"lead_tier":   "tier_1",
-		"lead_score":  "85",
-		"video_url":   "https://cdn.example.com/video.mp4",
-		"random_key":  "random_value",
+		"lead_tier":  "tier_1",
+		"lead_score": "85",
+		"video_url":  "https://cdn.example.com/video.mp4",
+		"random_key": "random_value",
 	}
 
 	sel := SelectTemplate(cfg, attribs)
@@ -233,6 +233,57 @@ func TestAttrConstants(t *testing.T) {
 	assert.Equal(t, "video_url", AttrVideoURL)
 	assert.Equal(t, "thumbnail_url", AttrThumbnailURL)
 	assert.Equal(t, "landing_page_url", AttrLandingPageURL)
+}
+
+// ===== SignalCopy =====
+
+func TestSignalCopy_AllKeysPresent(t *testing.T) {
+	// Every signal name from lead_scoring.Score should have a copy entry
+	expectedSignals := []string{
+		"multiple_providers", "running_ads", "high_reviews", "premium_services",
+		"affluent_zip", "no_chat", "voicemail_after_hrs", "no_online_booking",
+		"slow_form", "high_spend_low_rating", "owner_email", "active_social",
+		"industry_community",
+	}
+	for _, sig := range expectedSignals {
+		assert.Contains(t, SignalCopy, sig, "missing copy for signal: %s", sig)
+		assert.NotEmpty(t, SignalCopy[sig])
+	}
+}
+
+func TestSignalsToCopy_Basic(t *testing.T) {
+	result := SignalsToCopy("no_chat,running_ads")
+	assert.Equal(t, []string{
+		"missing live chat on your website",
+		"investing in paid advertising",
+	}, result)
+}
+
+func TestSignalsToCopy_Single(t *testing.T) {
+	result := SignalsToCopy("owner_email")
+	assert.Equal(t, []string{"being hands-on with the business"}, result)
+}
+
+func TestSignalsToCopy_Empty(t *testing.T) {
+	assert.Nil(t, SignalsToCopy(""))
+}
+
+func TestSignalsToCopy_UnknownSignal(t *testing.T) {
+	result := SignalsToCopy("no_chat,unknown_signal,running_ads")
+	assert.Equal(t, []string{
+		"missing live chat on your website",
+		"investing in paid advertising",
+	}, result)
+}
+
+func TestSignalsToCopy_AllUnknown(t *testing.T) {
+	result := SignalsToCopy("foo,bar")
+	assert.Empty(t, result)
+}
+
+func TestSignalsToCopy_WhitespaceHandling(t *testing.T) {
+	result := SignalsToCopy("no_chat , running_ads")
+	assert.Len(t, result, 2)
 }
 
 // ===== TemplateSelection struct =====

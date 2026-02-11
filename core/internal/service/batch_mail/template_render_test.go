@@ -433,11 +433,11 @@ func TestRenderEmailTemplate_VideoOutreach_NonVideoAttribsNotLeaked(t *testing.T
 	contact := &entity.Contact{
 		Email: "john@example.com",
 		Attribs: map[string]string{
-			"video_url":     "https://cdn.example.com/video.mp4",
-			"thumbnail_url": "https://cdn.example.com/thumb.png",
+			"video_url":        "https://cdn.example.com/video.mp4",
+			"thumbnail_url":    "https://cdn.example.com/thumb.png",
 			"landing_page_url": "https://example.com/watch",
-			"business_name": "Test Co",
-			"random_field":  "should not appear in VideoOutreach",
+			"business_name":    "Test Co",
+			"random_field":     "should not appear in VideoOutreach",
 		},
 	}
 
@@ -445,4 +445,121 @@ func TestRenderEmailTemplate_VideoOutreach_NonVideoAttribsNotLeaked(t *testing.T
 	result, err := engine.RenderEmailTemplate(ctx, `Biz: {{.Subscriber.business_name}}`, contact, nil, "")
 	assert.NoError(t, err)
 	assert.Contains(t, result, "Test Co")
+}
+
+// ===== Enrichment template variable tests =====
+
+func TestCleanUndefinedVariables_Enrichment(t *testing.T) {
+	engine := NewTemplateEngine()
+
+	tests := []struct {
+		name     string
+		input    string
+		wantKeep []string
+	}{
+		{"preserves Enrichment.TopSignal", `{{.Enrichment.TopSignal}}`, []string{`{{.Enrichment.TopSignal}}`}},
+		{"preserves Enrichment.SecondSignal", `{{.Enrichment.SecondSignal}}`, []string{`{{.Enrichment.SecondSignal}}`}},
+		{"preserves Enrichment.PainPoints", `{{.Enrichment.PainPoints}}`, []string{`{{.Enrichment.PainPoints}}`}},
+		{"preserves Enrichment.SignalCount", `{{.Enrichment.SignalCount}}`, []string{`{{.Enrichment.SignalCount}}`}},
+		{"preserves Enrichment.Signals", `{{.Enrichment.Signals}}`, []string{`{{.Enrichment.Signals}}`}},
+		{"preserves with whitespace", `{{ .Enrichment.TopSignal }}`, []string{`{{ .Enrichment.TopSignal }}`}},
+		{
+			"mixed Enrichment and Subscriber",
+			`{{.Subscriber.Email}} - {{.Enrichment.TopSignal}}`,
+			[]string{`{{.Subscriber.Email}}`, `{{.Enrichment.TopSignal}}`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := engine.cleanUndefinedVariables(tt.input)
+			for _, s := range tt.wantKeep {
+				assert.Contains(t, result, s, "should preserve: %s", s)
+			}
+		})
+	}
+}
+
+func TestRenderEmailTemplate_EnrichmentVars(t *testing.T) {
+	engine := NewTemplateEngine()
+	ctx := context.Background()
+
+	contact := &entity.Contact{
+		Email: "jane@example.com",
+		Attribs: map[string]string{
+			"lead_signals": "no_chat,running_ads,owner_email",
+			"lead_tier":    "tier_2",
+			"lead_score":   "55",
+			"first_name":   "Jane",
+		},
+	}
+
+	tests := []struct {
+		name     string
+		template string
+		want     string
+	}{
+		{
+			"top signal",
+			`noticed {{.Enrichment.TopSignal}}`,
+			`noticed missing live chat on your website`,
+		},
+		{
+			"second signal",
+			`also {{.Enrichment.SecondSignal}}`,
+			`also investing in paid advertising`,
+		},
+		{
+			"pain points joined",
+			`issues: {{.Enrichment.PainPoints}}`,
+			`issues: missing live chat on your website, investing in paid advertising, being hands-on with the business`,
+		},
+		{
+			"signal count",
+			`{{.Enrichment.SignalCount}} signals`,
+			`3 signals`,
+		},
+		{
+			"combined with subscriber",
+			`Hi {{.Subscriber.first_name}}, noticed {{.Enrichment.TopSignal}}`,
+			`Hi Jane, noticed missing live chat on your website`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := engine.RenderEmailTemplate(ctx, tt.template, contact, nil, "")
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, result)
+		})
+	}
+}
+
+func TestRenderEmailTemplate_Enrichment_NoSignals(t *testing.T) {
+	engine := NewTemplateEngine()
+	ctx := context.Background()
+
+	contact := &entity.Contact{
+		Email:   "jane@example.com",
+		Attribs: map[string]string{},
+	}
+
+	result, err := engine.RenderEmailTemplate(ctx, `Count: {{.Enrichment.SignalCount}}`, contact, nil, "")
+	assert.NoError(t, err)
+	assert.Equal(t, "Count: 0", result)
+}
+
+func TestRenderEmailTemplate_Enrichment_NilAttribs(t *testing.T) {
+	engine := NewTemplateEngine()
+	ctx := context.Background()
+
+	contact := &entity.Contact{
+		Email:   "jane@example.com",
+		Attribs: nil,
+	}
+
+	// Enrichment map is empty when attribs nil
+	result, err := engine.RenderEmailTemplate(ctx, `Hello {{.Subscriber.Email}}`, contact, nil, "")
+	assert.NoError(t, err)
+	assert.Equal(t, "Hello jane@example.com", result)
 }
