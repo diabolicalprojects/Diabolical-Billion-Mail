@@ -326,7 +326,8 @@ func (e *TaskExecutor) ProcessTask(ctx context.Context) error {
 			g.Log().Info(ctx, "task %d is canceled", task.Id)
 			return nil
 		}
-		return err
+		// Don't return — fall through to check completion
+		// Task may be partially complete with some recipients sent/failed
 	}
 
 	// end time and duration
@@ -1410,7 +1411,7 @@ func (e *TaskExecutor) isTaskComplete(ctx context.Context, taskId int) (bool, er
 	err := g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
 
 		err := tx.Model("recipient_info").
-			Fields("COUNT(1) as total_count, SUM(CASE WHEN is_sent = 1 THEN 1 ELSE 0 END) as sent_count").
+			Fields("COUNT(1) as total_count, SUM(CASE WHEN is_sent IN (1, 3) THEN 1 ELSE 0 END) as sent_count").
 			Where("task_id", taskId).
 			Scan(&result)
 		return err
