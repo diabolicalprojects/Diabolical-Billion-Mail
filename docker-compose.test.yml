@@ -25,6 +25,7 @@ services:
   postfix-billionmail:
     volumes:
       - postfix-spool:/var/spool/postfix
+      - ./conf/postfix/main.test.cf:/etc/postfix/main.cf:ro
 
   frostbyte-api:
     environment:

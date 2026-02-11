@@ -72,12 +72,19 @@ func NewRBACMiddleware() *RBACMiddleware {
 
 // PermissionCheck checks if the current user has the required permission
 func (m *RBACMiddleware) PermissionCheck(r *ghttp.Request) {
-	// Skip permission check for authentication-related routes
+	// Skip permission check for public/auth routes (must match jwt.go bypass list)
 	if r.URL.Path == "/api/login" ||
 		r.URL.Path == "/api/refresh-token" ||
 		r.URL.Path == "/api/get_validate_code" ||
 		r.URL.Path == "/api/languages/get" ||
-		r.URL.Path == "/api/languages/set" {
+		r.URL.Path == "/api/languages/set" ||
+		r.URL.Path == "/api/unsubscribe" ||
+		r.URL.Path == "/api/unsubscribe_new" ||
+		r.URL.Path == "/api/unsubscribe/user_group" ||
+		r.URL.Path == "/api/batch_mail/api/send" ||
+		r.URL.Path == "/api/batch_mail/api/batch_send" ||
+		r.URL.Path == "/api/subscribe/submit" ||
+		r.URL.Path == "/api/subscribe/confirm" {
 		r.Middleware.Next()
 		return
 	}
