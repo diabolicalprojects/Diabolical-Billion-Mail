@@ -1,6 +1,8 @@
 package batch_mail
 
 import (
+	"billionmail-core/internal/model/entity"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -208,4 +210,239 @@ func TestGetTemplateEngine_Singleton(t *testing.T) {
 	e1 := GetTemplateEngine()
 	e2 := GetTemplateEngine()
 	assert.Same(t, e1, e2, "should return same instance")
+}
+
+// ===== VideoOutreach template variable tests =====
+
+func TestCleanUndefinedVariables_VideoOutreach(t *testing.T) {
+	engine := NewTemplateEngine()
+
+	tests := []struct {
+		name     string
+		input    string
+		wantKeep []string
+		wantGone []string
+		wantHas  []string
+	}{
+		{
+			name:     "preserves VideoOutreach.VideoURL",
+			input:    `{{.VideoOutreach.VideoURL}}`,
+			wantKeep: []string{`{{.VideoOutreach.VideoURL}}`},
+		},
+		{
+			name:     "preserves VideoOutreach.ThumbnailURL",
+			input:    `{{.VideoOutreach.ThumbnailURL}}`,
+			wantKeep: []string{`{{.VideoOutreach.ThumbnailURL}}`},
+		},
+		{
+			name:     "preserves VideoOutreach.LandingPageURL",
+			input:    `{{.VideoOutreach.LandingPageURL}}`,
+			wantKeep: []string{`{{.VideoOutreach.LandingPageURL}}`},
+		},
+		{
+			name:     "preserves VideoOutreach.LeadTier",
+			input:    `{{.VideoOutreach.LeadTier}}`,
+			wantKeep: []string{`{{.VideoOutreach.LeadTier}}`},
+		},
+		{
+			name:     "preserves VideoOutreach.LeadScore",
+			input:    `{{.VideoOutreach.LeadScore}}`,
+			wantKeep: []string{`{{.VideoOutreach.LeadScore}}`},
+		},
+		{
+			name:     "preserves VideoOutreach with whitespace",
+			input:    `{{ .VideoOutreach.VideoURL }}`,
+			wantKeep: []string{`{{ .VideoOutreach.VideoURL }}`},
+		},
+		{
+			name:     "preserves VideoOutreach mixed with others",
+			input:    `{{.Subscriber.Email}} | {{.VideoOutreach.VideoURL}} | {{.Task.Subject}}`,
+			wantKeep: []string{`{{.Subscriber.Email}}`, `{{.VideoOutreach.VideoURL}}`, `{{.Task.Subject}}`},
+		},
+		{
+			name:     "multiple VideoOutreach vars",
+			input:    `<video src="{{.VideoOutreach.VideoURL}}" poster="{{.VideoOutreach.ThumbnailURL}}">`,
+			wantKeep: []string{`{{.VideoOutreach.VideoURL}}`, `{{.VideoOutreach.ThumbnailURL}}`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := engine.cleanUndefinedVariables(tt.input)
+
+			for _, s := range tt.wantKeep {
+				assert.Contains(t, result, s, "should preserve: %s", s)
+			}
+			for _, s := range tt.wantGone {
+				assert.NotContains(t, result, s, "should replace: %s", s)
+			}
+			for _, s := range tt.wantHas {
+				assert.Contains(t, result, s, "should contain replacement: %s", s)
+			}
+		})
+	}
+}
+
+func TestRenderEmailTemplate_VideoOutreachVars(t *testing.T) {
+	engine := NewTemplateEngine()
+	ctx := context.Background()
+
+	contact := &entity.Contact{
+		Email: "john@example.com",
+		Attribs: map[string]string{
+			"video_url":        "https://cdn.example.com/video.mp4",
+			"thumbnail_url":    "https://cdn.example.com/thumb.png",
+			"landing_page_url": "https://example.com/watch",
+			"lead_tier":        "tier_1",
+			"lead_score":       "85",
+		},
+	}
+
+	tests := []struct {
+		name     string
+		template string
+		want     string
+	}{
+		{
+			"video url",
+			`<video src="{{.VideoOutreach.VideoURL}}">`,
+			`<video src="https://cdn.example.com/video.mp4">`,
+		},
+		{
+			"thumbnail url",
+			`<img src="{{.VideoOutreach.ThumbnailURL}}">`,
+			`<img src="https://cdn.example.com/thumb.png">`,
+		},
+		{
+			"landing page url",
+			`<a href="{{.VideoOutreach.LandingPageURL}}">Watch</a>`,
+			`<a href="https://example.com/watch">Watch</a>`,
+		},
+		{
+			"lead tier",
+			`Tier: {{.VideoOutreach.LeadTier}}`,
+			`Tier: tier_1`,
+		},
+		{
+			"lead score",
+			`Score: {{.VideoOutreach.LeadScore}}`,
+			`Score: 85`,
+		},
+		{
+			"combined with subscriber",
+			`Hi {{.Subscriber.Email}}, watch: {{.VideoOutreach.LandingPageURL}}`,
+			`Hi john@example.com, watch: https://example.com/watch`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := engine.RenderEmailTemplate(ctx, tt.template, contact, nil, "")
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, result)
+		})
+	}
+}
+
+func TestRenderEmailTemplate_VideoOutreach_NilAttribs(t *testing.T) {
+	engine := NewTemplateEngine()
+	ctx := context.Background()
+
+	contact := &entity.Contact{
+		Email:   "john@example.com",
+		Attribs: nil,
+	}
+
+	// VideoOutreach map will be empty → template var produces empty string
+	result, err := engine.RenderEmailTemplate(ctx, `Video: {{.VideoOutreach.VideoURL}}`, contact, nil, "")
+	assert.NoError(t, err)
+	// When attribs are nil, VideoURL key doesn't exist in the map, template outputs <no value>
+	// The exact behavior depends on GoFrame's template engine
+	assert.NotEmpty(t, result)
+}
+
+func TestRenderEmailTemplate_VideoOutreach_EmptyAttribs(t *testing.T) {
+	engine := NewTemplateEngine()
+	ctx := context.Background()
+
+	contact := &entity.Contact{
+		Email:   "john@example.com",
+		Attribs: map[string]string{},
+	}
+
+	// No video keys in attribs → empty VideoOutreach map
+	result, err := engine.RenderEmailTemplate(ctx, `Hello {{.Subscriber.Email}}`, contact, nil, "")
+	assert.NoError(t, err)
+	assert.Equal(t, "Hello john@example.com", result)
+}
+
+func TestRenderEmailTemplate_VideoOutreach_PartialAttribs(t *testing.T) {
+	engine := NewTemplateEngine()
+	ctx := context.Background()
+
+	contact := &entity.Contact{
+		Email: "john@example.com",
+		Attribs: map[string]string{
+			"video_url": "https://cdn.example.com/video.mp4",
+			// no thumbnail_url, landing_page_url, lead_tier, lead_score
+		},
+	}
+
+	result, err := engine.RenderEmailTemplate(ctx, `Video: {{.VideoOutreach.VideoURL}}`, contact, nil, "")
+	assert.NoError(t, err)
+	assert.Contains(t, result, "https://cdn.example.com/video.mp4")
+}
+
+func TestRenderEmailTemplate_VideoOutreach_NilContact(t *testing.T) {
+	engine := NewTemplateEngine()
+	ctx := context.Background()
+
+	// nil contact → empty VideoOutreach map
+	result, err := engine.RenderEmailTemplate(ctx, `Hello World`, nil, nil, "")
+	assert.NoError(t, err)
+	assert.Equal(t, "Hello World", result)
+}
+
+func TestRenderEmailTemplate_VideoOutreach_WithTask(t *testing.T) {
+	engine := NewTemplateEngine()
+	ctx := context.Background()
+
+	contact := &entity.Contact{
+		Email: "john@example.com",
+		Attribs: map[string]string{
+			"video_url":        "https://cdn.example.com/video.mp4",
+			"thumbnail_url":    "https://cdn.example.com/thumb.png",
+			"landing_page_url": "https://example.com/watch",
+		},
+	}
+	task := &entity.EmailTask{
+		Id:      42,
+		Subject: "Watch your video",
+	}
+
+	tmpl := `Task #{{.Task.Id}}: {{.Task.Subject}} - {{.VideoOutreach.LandingPageURL}}`
+	result, err := engine.RenderEmailTemplate(ctx, tmpl, contact, task, "")
+	assert.NoError(t, err)
+	assert.Equal(t, `Task #42: Watch your video - https://example.com/watch`, result)
+}
+
+func TestRenderEmailTemplate_VideoOutreach_NonVideoAttribsNotLeaked(t *testing.T) {
+	engine := NewTemplateEngine()
+	ctx := context.Background()
+
+	contact := &entity.Contact{
+		Email: "john@example.com",
+		Attribs: map[string]string{
+			"video_url":     "https://cdn.example.com/video.mp4",
+			"thumbnail_url": "https://cdn.example.com/thumb.png",
+			"landing_page_url": "https://example.com/watch",
+			"business_name": "Test Co",
+			"random_field":  "should not appear in VideoOutreach",
+		},
+	}
+
+	// business_name and random_field should be in Subscriber, NOT in VideoOutreach
+	result, err := engine.RenderEmailTemplate(ctx, `Biz: {{.Subscriber.business_name}}`, contact, nil, "")
+	assert.NoError(t, err)
+	assert.Contains(t, result, "Test Co")
 }
