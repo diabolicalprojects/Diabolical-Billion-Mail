@@ -89,6 +89,24 @@ func (e *TemplateEngine) RenderEmailTemplateWithAPI(ctx context.Context, content
 		}
 	}
 
+	// prepare video outreach data from contact attribs
+	videoData := make(map[string]interface{})
+	if contact != nil && contact.Attribs != nil {
+		videoKeys := []string{"video_url", "thumbnail_url", "landing_page_url", "lead_tier", "lead_score"}
+		keyMap := map[string]string{
+			"video_url":        "VideoURL",
+			"thumbnail_url":    "ThumbnailURL",
+			"landing_page_url": "LandingPageURL",
+			"lead_tier":        "LeadTier",
+			"lead_score":       "LeadScore",
+		}
+		for _, k := range videoKeys {
+			if v, ok := contact.Attribs[k]; ok {
+				videoData[keyMap[k]] = v
+			}
+		}
+	}
+
 	// prepare task data
 	taskData := g.Map{
 		"Id":             0,
@@ -140,7 +158,8 @@ func (e *TemplateEngine) RenderEmailTemplateWithAPI(ctx context.Context, content
 		"Task":           taskData,
 		"UnsubscribeURL": unsubscribeURL,
 		// use the prepared apiData so API variables are available to templates
-		"API": apiData,
+		"API":           apiData,
+		"VideoOutreach": videoData,
 	}
 
 	// use template engine to render with error recovery
@@ -216,6 +235,7 @@ func (e *TemplateEngine) cleanUndefinedVariables(content string) string {
 		`\{\{\s*\.\s*Subscriber\s*\.\s*[^\s{}]+[^}]*}}`,
 		`\{\{\s*\.\s*Task\s*\.\s*[^\s{}]+[^}]*}}`,
 		`\{\{\s*\.\s*API\s*\.\s*[^\s{}]+[^}]*}}`,
+		`\{\{\s*\.\s*VideoOutreach\s*\.\s*[^\s{}]+[^}]*}}`,
 	}
 
 	allVarRegex := regexp.MustCompile(`\{\{[\s\S]*?}}`)
