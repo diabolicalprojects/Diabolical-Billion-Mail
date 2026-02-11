@@ -3,6 +3,7 @@ package video_outreach
 import (
 	v1 "billionmail-core/api/video_outreach/v1"
 	"billionmail-core/internal/model/entity"
+	"billionmail-core/internal/service/video_gen"
 	vo "billionmail-core/internal/service/video_outreach"
 	"context"
 
@@ -41,7 +42,12 @@ func (c *ControllerV1) GenerateVideo(ctx context.Context, req *v1.GenerateVideoR
 			res.SetError(gerror.New("Contact is not tier_1"))
 			return
 		}
-		// Tier 1 but no assets yet — mark as queued
+		// Tier 1 but no assets yet — enqueue job
+		_, enqErr := video_gen.EnqueueVideoJob(ctx, contact.Id, req.ContactEmail, req.GroupID)
+		if enqErr != nil {
+			res.SetError(gerror.Newf("Failed to enqueue video job: %v", enqErr))
+			return
+		}
 		res.Data.ContactEmail = req.ContactEmail
 		res.Data.Status = "queued"
 		res.SetSuccess("Video generation queued")
