@@ -1216,8 +1216,12 @@ func (e *TaskExecutor) sendEmail(ctx context.Context, task *entity.EmailTask, re
 	//baseURL := domains.GetBaseURLBySender(currentTask.Addresser)
 	baseURL := domains.GetBaseURL()
 	mail_tracker := maillog_stat.NewMailTracker(renderedContent, currentTask.Id, messageID, recipient.Recipient, baseURL)
-	mail_tracker.TrackLinks()
-	mail_tracker.AppendTrackingPixel()
+	if currentTask.TrackClick == 1 {
+		mail_tracker.TrackLinks()
+	}
+	if currentTask.TrackOpen == 1 {
+		mail_tracker.AppendTrackingPixel()
+	}
 	renderedContent = mail_tracker.GetHTML()
 
 	// create email message with rendered subject
