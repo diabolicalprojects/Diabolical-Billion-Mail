@@ -259,7 +259,11 @@ func Get(ctx context.Context, keyword string, page, pageSize int) ([]v1.Domain, 
 		wg.Add(1)
 		go func(i int, domain v1.Domain) {
 			defer wg.Done()
-			domains[i].DNSRecords = GetRecordsInCache(strings.TrimPrefix(domain.Domain, "mail."))
+			dedicatedIP := ""
+			if domain.MultiIPDomains != nil {
+				dedicatedIP = domain.MultiIPDomains.OutboundIP
+			}
+			domains[i].DNSRecords = GetRecordsInCache(strings.TrimPrefix(domain.Domain, "mail."), dedicatedIP)
 		}(i, domain)
 
 		// Retrieve Domains SSL certificate information
@@ -402,7 +406,7 @@ func FreshRecords(ctx context.Context, domain ...string) {
 		// retrieve A record
 		go func(d string) {
 			defer wg.Done()
-			dr, err := GetARecord(d, true)
+			dr, err := GetARecord(d, true, "")
 			if err != nil {
 				g.Log().Error(ctx, "Failed to get A record for domain %s: %v", d, err)
 			} else {
@@ -719,24 +723,27 @@ func GetMXRecord(domain string, validateImmediate bool) (record v1.DNSRecord, er
 }
 
 // GetARecord retrieves the A record for a given domain.
-func GetARecord(domain string, validateImmediate bool) (record v1.DNSRecord, err error) {
-	serverIP, err := public.GetServerIP()
-
-	if err != nil {
-		err = fmt.Errorf("Failed to get server IP: %v", err)
-		return
+// If dedicatedIP is non-empty, it is used instead of the server's default IP.
+func GetARecord(domain string, validateImmediate bool, dedicatedIP string) (record v1.DNSRecord, err error) {
+	ip := dedicatedIP
+	if ip == "" {
+		ip, err = public.GetServerIP()
+		if err != nil {
+			err = fmt.Errorf("Failed to get server IP: %v", err)
+			return
+		}
 	}
 
 	recordType := "A"
 
-	if strings.Contains(serverIP, ":") {
+	if strings.Contains(ip, ":") {
 		recordType = "AAAA"
 	}
 
 	record = v1.DNSRecord{
 		Type:  recordType,
 		Host:  public.FormatMX(domain),
-		Value: serverIP,
+		Value: ip,
 	}
 
 	if validateImmediate {
@@ -771,16 +778,20 @@ func GetPTRRecord(domain string, validateImmediate bool) (record v1.DNSRecord, e
 }
 
 // GetRecordsInCache retrieves DNS records from the cache for a given domain.
-func GetRecordsInCache(domain string) (records v1.DNSRecords) {
-	// Get A record from cache
-	aRecord := public.GetCache(buildCacheKey(domain, "A"))
-
-	if aRecord != nil {
-		if v, ok := aRecord.(v1.DNSRecord); ok {
-			records.A = v
-		}
+// If dedicatedIP is non-empty, the A record uses that IP instead of the server default.
+func GetRecordsInCache(domain string, dedicatedIP string) (records v1.DNSRecords) {
+	// Get A record — bypass cache when a dedicated IP is set
+	if dedicatedIP != "" {
+		records.A, _ = GetARecord(domain, false, dedicatedIP)
 	} else {
-		records.A, _ = GetARecord(domain, false)
+		aRecord := public.GetCache(buildCacheKey(domain, "A"))
+		if aRecord != nil {
+			if v, ok := aRecord.(v1.DNSRecord); ok {
+				records.A = v
+			}
+		} else {
+			records.A, _ = GetARecord(domain, false, "")
+		}
 	}
 
 	// Get MX record from cache
