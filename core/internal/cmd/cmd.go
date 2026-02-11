@@ -180,7 +180,7 @@ var (
 							return
 						}
 
-						if !r.IsFileRequest() && !strings.HasPrefix(r.URL.Path, "/api/") {
+						if r.IsFileRequest() {
 							return
 						}
 
