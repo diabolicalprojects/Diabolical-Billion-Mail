@@ -25,7 +25,7 @@ import (
 func ApplyLetsEncryptCertWithHttp(ctx context.Context, domain string, accountInfo *model.Account) error {
 	// Find the existing certificate for the domain
 	if crt, err := FindSSLByDomain(domain); err == nil && crt != nil {
-		if crt.Status == 1 && crt.EndTime > time.Now().AddDate(0, 0, 3).Unix() {
+		if crt.Status == 1 && crt.EndTime > time.Now().AddDate(0, 0, 30).Unix() {
 			g.Log().Debug(ctx, "Found existing certificate for domain:", domain)
 			return ApplyCertToService(domain, crt.Certificate, crt.PrivateKey)
 		}
@@ -73,11 +73,23 @@ func ApplyLetsEncryptCertWithHttp(ctx context.Context, domain string, accountInf
 		"subject":     subject,
 	}
 
-	// Save the certificate and key to the database
-	_, err = g.DB().Model("letsencrypts").Insert(pdata)
+	// Update existing record for this domain if one exists (including expired),
+	// otherwise insert a new one. This prevents accumulating stale expired
+	// certificate records for the same domain.
+	affected, err := g.DB().Model("letsencrypts").
+		Where("dns::jsonb ? $1", public.FormatMX(domain)).
+		Update(pdata)
 
 	if err != nil {
 		return err
+	}
+
+	if rowsAffected, _ := affected.RowsAffected(); rowsAffected == 0 {
+		// No existing record found, insert a new one
+		_, err = g.DB().Model("letsencrypts").Insert(pdata)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Apply the certificate to the service, postfix, dovecot, etc.
@@ -233,7 +245,7 @@ func ApplyConsoleCert(ctx context.Context) error {
 	if crt.CertId == 0 || crt.Certificate == "" {
 		g.Log().Debug(ctx, "No existing certificate found:", hostname)
 	} else {
-		if crt.Status == 1 && crt.EndTime > time.Now().AddDate(0, 0, 3).Unix() {
+		if crt.Status == 1 && crt.EndTime > time.Now().AddDate(0, 0, 30).Unix() {
 			err = ApplyCertToConsole(crt.Certificate, crt.PrivateKey)
 			if err != nil {
 				return gerror.Newf("Failed to apply existing certificate to console: %v", err)
@@ -300,11 +312,22 @@ func ApplyConsoleCert(ctx context.Context) error {
 		"subject":     subject,
 	}
 
-	// Save the certificate and key to the database
-	_, err = g.DB().Model("letsencrypts").Insert(pdata)
+	// Update existing record for this domain if one exists (including expired),
+	// otherwise insert a new one.
+	affected, err := g.DB().Model("letsencrypts").
+		Where("dns::jsonb ? $1", hostname).
+		Update(pdata)
 
 	if err != nil {
 		return gerror.Newf("Failed to save certificate to database: %v", err)
+	}
+
+	if rowsAffected, _ := affected.RowsAffected(); rowsAffected == 0 {
+		// No existing record found, insert a new one
+		_, err = g.DB().Model("letsencrypts").Insert(pdata)
+		if err != nil {
+			return gerror.Newf("Failed to save certificate to database: %v", err)
+		}
 	}
 
 	if err := ApplyCertToConsole(certificate, privateKey); err != nil {
