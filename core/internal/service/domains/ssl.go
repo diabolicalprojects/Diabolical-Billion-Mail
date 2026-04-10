@@ -13,12 +13,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"github.com/gogf/gf/v2/errors/gerror"
-	"github.com/gogf/gf/v2/frame/g"
-	"github.com/gogf/gf/v2/util/gconv"
 	"net/url"
 	"path/filepath"
 	"time"
+
+	"github.com/gogf/gf/v2/errors/gerror"
+	"github.com/gogf/gf/v2/frame/g"
+	"github.com/gogf/gf/v2/util/gconv"
 )
 
 // ApplyLetsEncryptCertWithHttp applies for a Let's Encrypt certificate for the given domain.
@@ -338,28 +339,39 @@ func ApplyConsoleCert(ctx context.Context) error {
 
 // Auto-renew SSL certificate
 func AutoRenewSSL(ctx context.Context) {
+	g.Log().Info(ctx, "[AutoRenewSSL] Starting SSL auto-renew check...")
+
 	// Renew console SSL certificate
 	certInfo, err := GetConsoleSSLInfo()
 	if err == nil && certInfo.Endtime > 0 {
 		remain := certInfo.Endtime - int(time.Now().Unix())
+		g.Log().Infof(ctx, "[AutoRenewSSL] Console cert remaining: %d seconds (%.1f days)", remain, float64(remain)/86400)
 		if remain < 3*24*3600 {
+			g.Log().Info(ctx, "[AutoRenewSSL] Console certificate is about to expire, attempting renewal")
 			err = ApplyConsoleCert(ctx)
 			if err != nil {
-				g.Log().Warningf(ctx, "Console certificate is about to expire, auto-renewal failed: %v", err)
+				g.Log().Warningf(ctx, "[AutoRenewSSL] Console certificate auto-renewal failed: %v", err)
 			} else {
-				g.Log().Info(ctx, "Console certificate is about to expire, auto-renewal succeeded")
+				g.Log().Info(ctx, "[AutoRenewSSL] Console certificate auto-renewal succeeded")
 			}
 		}
+	} else {
+		g.Log().Infof(ctx, "[AutoRenewSSL] Console cert info: endtime=%d, err=%v", certInfo.Endtime, err)
 	}
 
 	// admin account
 	adminAccount := &model.Account{}
 	adminUsername, err := public.DockerEnv("ADMIN_USERNAME")
-	err = g.DB().Model("account").Where("username = ?", adminUsername).Scan(adminAccount)
 	if err != nil {
-		g.Log().Error(ctx, "Failed to get admin account for SSL renewal: ", err)
+		g.Log().Error(ctx, "[AutoRenewSSL] Failed to get ADMIN_USERNAME: ", err)
 		return
 	}
+	err = g.DB().Model("account").Where("username = ?", adminUsername).Scan(adminAccount)
+	if err != nil {
+		g.Log().Error(ctx, "[AutoRenewSSL] Failed to get admin account for SSL renewal: ", err)
+		return
+	}
+	g.Log().Infof(ctx, "[AutoRenewSSL] Admin account found: %s", adminAccount.Email)
 
 	var domainList []string
 	rows, err := g.DB().Model("domain").Fields("domain").All()
@@ -372,24 +384,39 @@ func AutoRenewSSL(ctx context.Context) {
 			}
 		}
 	}
+	g.Log().Infof(ctx, "[AutoRenewSSL] Found %d domain(s) to check: %v", len(domainList), domainList)
 
 	for _, domain := range domainList {
-		domain = public.FormatMX(domain)
-		certInfo, err = mail_service.NewCertificate().GetSSLInfo(domain)
-		if err == nil && certInfo.Endtime > 0 {
-			remain := certInfo.Endtime - int(time.Now().Unix())
-			//g.Log().Warningf(ctx, "Remaining time for domain certificate: %d seconds, domain: %s", remain, domain)
-			if remain < 3*24*3600 {
-				//g.Log().Info(ctx, "Domain certificate is about to expire, auto-renewing: ", domain)
+		formattedDomain := public.FormatMX(domain)
+		g.Log().Infof(ctx, "[AutoRenewSSL] Checking domain: %s (formatted: %s)", domain, formattedDomain)
 
-				certErr := ApplyLetsEncryptCertWithHttp(ctx, domain, adminAccount)
-				if certErr != nil {
-					g.Log().Warningf(ctx, "Domain name [%s]  auto-request certificate failed: %v", domain, certErr)
-				}
-
-			}
+		certInfo, err = mail_service.NewCertificate().GetSSLInfo(formattedDomain)
+		if err != nil {
+			g.Log().Warningf(ctx, "[AutoRenewSSL] GetSSLInfo for %s returned error: %v", formattedDomain, err)
+			continue
 		}
-		// Skip if no certificate exists (endtime=0)
+		if certInfo.Endtime <= 0 {
+			g.Log().Warningf(ctx, "[AutoRenewSSL] No valid cert found for %s (endtime=%d, subject=%s), skipping",
+				formattedDomain, certInfo.Endtime, certInfo.Subject)
+			continue
+		}
+
+		remain := certInfo.Endtime - int(time.Now().Unix())
+		g.Log().Infof(ctx, "[AutoRenewSSL] Domain %s cert remaining: %d seconds (%.1f days), issuer: %s",
+			formattedDomain, remain, float64(remain)/86400, certInfo.Issuer)
+
+		if remain < 3*24*3600 {
+			g.Log().Infof(ctx, "[AutoRenewSSL] Domain %s cert is about to expire, starting renewal...", formattedDomain)
+			certErr := ApplyLetsEncryptCertWithHttp(ctx, domain, adminAccount)
+			if certErr != nil {
+				g.Log().Warningf(ctx, "[AutoRenewSSL] Domain [%s] auto-request certificate failed: %v", formattedDomain, certErr)
+			} else {
+				g.Log().Infof(ctx, "[AutoRenewSSL] Domain [%s] auto-request certificate succeeded", formattedDomain)
+			}
+		} else {
+			g.Log().Infof(ctx, "[AutoRenewSSL] Domain %s cert is still valid, skipping renewal", formattedDomain)
+		}
 	}
 
+	g.Log().Info(ctx, "[AutoRenewSSL] SSL auto-renew check completed")
 }
