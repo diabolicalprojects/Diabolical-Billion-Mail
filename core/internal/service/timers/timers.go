@@ -112,8 +112,9 @@ func Start(ctx context.Context) (err error) {
 	gtimer.Add(5*time.Minute, func() {
 		relay.UpdateRelayStatus(ctx)
 	})
-
-	gtimer.Add(24*time.Hour, func() {
+	// 续签证书 临时改为1分钟
+	gtimer.Add(60*time.Second, func() {
+		//gtimer.Add(24*time.Hour, func() {
 		domains.AutoRenewSSL(ctx)
 	})
 

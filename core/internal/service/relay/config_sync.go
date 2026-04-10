@@ -414,7 +414,12 @@ func SyncRelayConfigsToPostfix(ctx context.Context) error {
 		return gerror.Wrap(err, "Failed to query active relay configurations count")
 	}
 
-	activeMappingCount, err := g.DB().Model("bm_relay_domain_mapping").Count()
+	// Only check domain mappings that belong to ACTIVE relay configs.
+	// Using total mapping count would incorrectly include mappings from disabled relays.
+	activeMappingCount, err := g.DB().Model("bm_relay_domain_mapping rdm").
+		LeftJoin("bm_relay_config rc", "rdm.relay_id = rc.id").
+		Where("rc.active", 1).
+		Count()
 	if err != nil {
 		return gerror.Wrap(err, "Failed to query active relay domain mappings count")
 	}
@@ -841,8 +846,10 @@ func updateSmtpServiceMappings(ctx context.Context, configs []*entity.BmRelayCon
 	}
 
 	var mappings []RelayDomainMapping
-	err := g.DB().Model("bm_relay_domain_mapping").
-		Fields("relay_id, sender_domain").
+	err := g.DB().Model("bm_relay_domain_mapping rdm").
+		LeftJoin("bm_relay_config rc", "rdm.relay_id = rc.id").
+		Where("rc.active", 1).
+		Fields("rdm.relay_id, rdm.sender_domain").
 		Scan(&mappings)
 
 	if err != nil {
@@ -897,17 +904,23 @@ func updateSmtpServiceMappings(ctx context.Context, configs []*entity.BmRelayCon
 		return nil
 	}
 
-	// Batch insert new mappings
+	// Batch upsert new mappings, using ON CONFLICT to handle cases where
+	// another atype (e.g. 'local') already owns the domain.
+	// Log but don't fail — blocking this would prevent main.cf relay config
+	// block from being written, breaking all relay functionality.
 	_, err = g.DB().Model("bm_domain_smtp_transport").
 		Data(transportMappings).
+		OnConflict("domain").
+		OnDuplicate("smtp_name", "atype").
 		Batch(100).
 		Insert()
 
 	if err != nil {
-		return gerror.Wrap(err, "failed to batch insert SMTP service name mappings")
+		g.Log().Warningf(ctx, "Failed to batch insert SMTP service name mappings (non-fatal): %v", err)
+		// Don't return — let the rest of the sync continue (main.cf update, postfix reload)
+	} else {
+		g.Log().Infof(ctx, "Updated %d SMTP service name mappings", len(transportMappings))
 	}
-
-	g.Log().Infof(ctx, "Updated %d SMTP service name mappings", len(transportMappings))
 	return nil
 }
 
