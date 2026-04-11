@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gogf/gf/v2/errors/gerror"
@@ -24,17 +25,43 @@ import (
 
 // ApplyLetsEncryptCertWithHttp applies for a Let's Encrypt certificate for the given domain.
 func ApplyLetsEncryptCertWithHttp(ctx context.Context, domain string, accountInfo *model.Account) error {
-	// Find the existing certificate for the domain
-	if crt, err := FindSSLByDomain(domain); err == nil && crt != nil {
+	formattedDomain := public.FormatMX(domain)
+
+	// Find the existing certificate for the domain (including expired)
+	var crt *entity.Letsencrypt
+	g.DB().Model("letsencrypts").
+		Where("dns::jsonb ? $1", formattedDomain).
+		Order("endtime desc").
+		Limit(1).Scan(&crt)
+
+	if crt != nil && crt.CertId != 0 {
 		if crt.Status == 1 && crt.EndTime > time.Now().AddDate(0, 0, 30).Unix() {
-			g.Log().Debug(ctx, "Found existing certificate for domain:", domain)
+			g.Log().Debug(ctx, "[ApplyLetsEncrypt] Found valid certificate for domain:", formattedDomain)
 			return ApplyCertToService(domain, crt.Certificate, crt.PrivateKey)
+		}
+
+		// If last attempt failed recently (status=-1) and error_info indicates rate limit,
+		// skip re-applying to avoid hitting LE rate limits repeatedly
+		if crt.Status == -1 && crt.ErrorInfo != "" {
+			// Check if the error contains rate limit info
+			if strings.Contains(crt.ErrorInfo, "rateLimited") || strings.Contains(crt.ErrorInfo, "too many") {
+				g.Log().Warning(ctx, "[ApplyLetsEncrypt] Skipping due to previous rate limit error for domain:", formattedDomain)
+				return gerror.Newf("Rate limited, please wait and try later. Last error: %s", crt.ErrorInfo)
+			}
 		}
 	}
 
-	certificate, privateKey, err := acme.ApplySSLWithExistingServer(ctx, []string{public.FormatMX(domain)}, accountInfo.Email, "http", "", nil, public.AbsPath(consts.SSL_PATH))
+	certificate, privateKey, err := acme.ApplySSLWithExistingServer(ctx, []string{formattedDomain}, accountInfo.Email, "http", "", nil, public.AbsPath(consts.SSL_PATH))
 
 	if err != nil {
+		// Save error info to database for debugging
+		pdata := g.Map{
+			"error_info": err.Error(),
+			"status":     -1,
+		}
+		g.DB().Model("letsencrypts").
+			Where("dns::jsonb ? $1", formattedDomain).
+			Update(pdata)
 		return err
 	}
 
@@ -393,11 +420,31 @@ func AutoRenewSSL(ctx context.Context) {
 		certInfo, err = mail_service.NewCertificate().GetSSLInfo(formattedDomain)
 		if err != nil {
 			g.Log().Warningf(ctx, "[AutoRenewSSL] GetSSLInfo for %s returned error: %v", formattedDomain, err)
-			continue
 		}
+
 		if certInfo.Endtime <= 0 {
-			g.Log().Warningf(ctx, "[AutoRenewSSL] No valid cert found for %s (endtime=%d, subject=%s), skipping",
-				formattedDomain, certInfo.Endtime, certInfo.Subject)
+			// No certificate file found, check if there's a DB record indicating a recent failed attempt
+			var dbCrt *entity.Letsencrypt
+			g.DB().Model("letsencrypts").
+				Where("dns::jsonb ? $1", formattedDomain).
+				Order("cert_id desc").
+				Limit(1).Scan(&dbCrt)
+
+			if dbCrt != nil && dbCrt.CertId != 0 && dbCrt.Status == -1 && dbCrt.ErrorInfo != "" {
+				// Recent failed attempt (e.g., rate limited), skip
+				g.Log().Warningf(ctx, "[AutoRenewSSL] Domain %s has recent failed attempt, skipping. Last error: %s",
+					formattedDomain, dbCrt.ErrorInfo)
+				continue
+			}
+
+			// No cert file and no recent failure, attempt to apply for the first time
+			g.Log().Infof(ctx, "[AutoRenewSSL] Domain %s has no certificate file, attempting to apply", formattedDomain)
+			certErr := ApplyLetsEncryptCertWithHttp(ctx, domain, adminAccount)
+			if certErr != nil {
+				g.Log().Warningf(ctx, "[AutoRenewSSL] Domain [%s] auto-request certificate failed: %v", formattedDomain, certErr)
+			} else {
+				g.Log().Infof(ctx, "[AutoRenewSSL] Domain [%s] auto-request certificate succeeded", formattedDomain)
+			}
 			continue
 		}
 
