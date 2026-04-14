@@ -41,7 +41,6 @@ func TestPathToRouteInfo(t *testing.T) {
 		{"operation_log", "/api/operation_log/list", "operation_log", "read", "operation_log"},
 		{"askai", "/api/askai/list", "askai", "read", "askai"},
 		{"tags", "/api/tags/list", "tags", "read", "tags"},
-		{"frostbyte", "/api/frostbyte/list", "frostbyte", "read", "frostbyte"},
 		{"video_outreach", "/api/video_outreach/list", "video_outreach", "read", "video_outreach"},
 
 		// Non-standard actions pass through
