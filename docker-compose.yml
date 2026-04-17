@@ -210,16 +210,6 @@ services:
           aliases:
             - core
 
-    gmaps-scraper:
-      image: gosom/google-maps-scraper:latest
-      command: ["-web"]
-      ports:
-        - "8080:8080"
-      restart: always
-      networks:
-        billionmail-network:
-          aliases:
-            - gmaps-scraper
 
 networks:
   billionmail-network:
