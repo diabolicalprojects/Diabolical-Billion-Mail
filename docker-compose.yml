@@ -198,8 +198,12 @@ services:
       - DBNAME=${DBNAME}
       - DBUSER=${DBUSER}
       - DBPASS=${DBPASS}
-      - DBHOST=${DBHOST:-pgsql}
+      - DBHOST=10.0.1.189
+      - REDISHOST=redis-billionmail
+      - REDISPASS=${REDISPASS}
       - FAIL2BAN_INIT=${FAIL2BAN_INIT:-y}
+    depends_on:
+      - redis-billionmail
     cap_add:
       - NET_BIND_SERVICE
       - NET_ADMIN
@@ -213,6 +217,15 @@ services:
         aliases:
           - core
       dokploy-network:
+
+  redis-billionmail:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDISPASS}
+    networks:
+      billionmail-network:
+        aliases:
+          - redis
+    restart: always
 
 networks:
   billionmail-network:
