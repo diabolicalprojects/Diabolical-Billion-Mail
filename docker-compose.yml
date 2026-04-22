@@ -4,6 +4,8 @@ services:
   redis-billionmail:
     image: redis:7-alpine
     command: redis-server --requirepass ${REDISPASS}
+    volumes:
+      - redis_data:/data
     networks:
       billionmail-network:
         aliases:
@@ -19,6 +21,8 @@ services:
       - DBUSER=${DBUSER}
       - DBPASS=${DBPASS}
       - REDISPASS=${REDISPASS}
+    volumes:
+      - postfix_data:/var/spool/postfix
     networks:
       billionmail-network:
         aliases:
@@ -34,6 +38,8 @@ services:
       - DBNAME=${DBNAME}
       - DBUSER=${DBUSER}
       - DBPASS=${DBPASS}
+    volumes:
+      - dovecot_data:/var/mail
     networks:
       billionmail-network:
         aliases:
@@ -50,6 +56,8 @@ services:
       - ROUNDCUBEMAIL_DB_USER=${DBUSER}
       - ROUNDCUBEMAIL_DB_PASSWORD=${DBPASS}
       - ROUNDCUBEMAIL_DB_NAME=${DBNAME}
+    volumes:
+      - webmail_data:/var/www/html
     networks:
       billionmail-network:
         aliases:
@@ -80,6 +88,8 @@ services:
     ports:
       - "${HTTP_PORT:-8080}:80"
       - "${HTTPS_PORT:-8443}:443"
+    volumes:
+      - core_data:/opt/core/data
     restart: always
     networks:
       billionmail-network:
@@ -98,3 +108,10 @@ networks:
         - subnet: ${IPV4_NETWORK:-172.66.1}.0/24
   dokploy-network:
     external: true
+
+volumes:
+  redis_data:
+  postfix_data:
+  dovecot_data:
+  webmail_data:
+  core_data:
