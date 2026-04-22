@@ -67,6 +67,7 @@ services:
 
   core-billionmail:
     image: billionmail/core:4.9.3
+    entrypoint: ["sh", "-c", "mkdir -p /opt/billionmail && echo 'ADMIN_USERNAME=${ADMIN_USERNAME}\nADMIN_PASSWORD=${ADMIN_PASSWORD}\nSafePath=${SafePath}\nBILLIONMAIL_HOSTNAME=${BILLIONMAIL_HOSTNAME}\nDBNAME=${DBNAME}\nDBUSER=${DBUSER}\nDBPASS=${DBPASS}\nDBHOST=10.0.1.189\nREDISPASS=${REDISPASS}\nREDISHOST=redis-billionmail' > /opt/billionmail/.env && /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"]
     environment:
       - ADMIN_USERNAME=${ADMIN_USERNAME}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
@@ -78,7 +79,7 @@ services:
       - DBUSER=${DBUSER}
       - DBPASS=${DBPASS}
       - DBHOST=10.0.1.189
-      - FAIL2BAN_INIT=${FAIL2BAN_INIT:-y}
+      - FAIL2BAN_INIT=n
     depends_on:
       - redis-billionmail
     cap_add:
