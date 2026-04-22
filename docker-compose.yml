@@ -67,7 +67,7 @@ services:
 
   core-billionmail:
     image: billionmail/core:4.9.3
-    entrypoint: ["sh", "-c", "mkdir -p /opt/billionmail && echo 'ADMIN_USERNAME=${ADMIN_USERNAME}\nADMIN_PASSWORD=${ADMIN_PASSWORD}\nSafePath=${SafePath}\nBILLIONMAIL_HOSTNAME=${BILLIONMAIL_HOSTNAME}\nDBNAME=${DBNAME}\nDBUSER=${DBUSER}\nDBPASS=${DBPASS}\nDBHOST=10.0.1.189\nREDISPASS=${REDISPASS}\nREDISHOST=redis-billionmail' > /opt/billionmail/.env && /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"]
+    entrypoint: ["sh", "-c", "mkdir -p /opt/billionmail && echo \"ADMIN_USERNAME=${ADMIN_USERNAME}\nADMIN_PASSWORD=${ADMIN_PASSWORD}\nSafePath=${SafePath}\nBILLIONMAIL_HOSTNAME=${BILLIONMAIL_HOSTNAME}\nDBNAME=${DBNAME}\nDBUSER=${DBUSER}\nDBPASS=${DBPASS}\nDBHOST=10.0.1.189\nREDISPASS=${REDISPASS}\nREDISHOST=redis-billionmail\" > /opt/billionmail/.env && supervisord -n -c /etc/supervisord.conf"]
     environment:
       - ADMIN_USERNAME=${ADMIN_USERNAME}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
